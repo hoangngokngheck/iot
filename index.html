@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Home Dashboard</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {font-family: Arial; background:#f4f6f9; color:#2c3e50; margin:0; padding:0;}
+    h1 {color:#34495e; text-align:center; padding:20px 0; margin:0; background:#ecf0f1;}
+    .container {display:grid; grid-template-columns:1fr 2fr; gap:20px; padding:20px;}
+    .card {background:white; border-radius:12px; box-shadow:0 4px 8px rgba(0,0,0,0.1); padding:20px;}
+    .switch {position:relative; display:inline-block; width:60px; height:34px;}
+    .switch input {display:none;}
+    .slider {position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#ccc; transition:.4s; border-radius:34px;}
+    .slider:before {position:absolute; content:''; height:26px; width:26px; left:4px; bottom:4px; background:white; transition:.4s; border-radius:50%;}
+    input:checked+.slider {background-color:#4CAF50;}
+    input:checked+.slider:before {transform:translateX(26px);}
+    button {padding:10px 20px; margin:10px; font-size:16px; border:none; border-radius:8px; background:#3498db; color:white; cursor:pointer;}
+    .right {display:grid; grid-template-rows:auto auto; gap:15px;}
+    .charts {display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
+    canvas {height:120px !important; width:100% !important;}
+    @media(max-width:768px){.container{grid-template-columns:1fr;}.charts{grid-template-columns:1fr;}}
+  </style>
+</head>
+<body>
+  <h1>🏠 Smart Home Dashboard (MQTT Cloud)</h1>
+  <div class="container">
+    <div class="card">
+      <h3>Điều khiển thiết bị</h3>
+      <p><b>Chế độ hiện tại:</b> <span id="modeText">Đang tải...</span></p>
+      <button onclick="toggleMode()">Đổi Auto/Manual</button>
+
+      <p>💡 Đèn: <span id="lampText">--</span><br>
+        <label class="switch">
+          <input type="checkbox" id="lampToggle" onclick="toggleDevice('lamp')" disabled>
+          <span class="slider"></span>
+        </label>
+      </p>
+
+      <p>💧 Máy phun sương: <span id="mistText">--</span><br>
+        <label class="switch">
+          <input type="checkbox" id="mistToggle" onclick="toggleDevice('mist')" disabled>
+          <span class="slider"></span>
+        </label>
+      </p>
+
+      <p>🌬 Quạt: <span id="fanText">--</span><br>
+        <label class="switch">
+          <input type="checkbox" id="fanToggle" onclick="toggleDevice('fan')" disabled>
+          <span class="slider"></span>
+        </label>
+      </p>
+    </div>
+
+    <div class="card right">
+      <div>
+        <h3>Dữ liệu cảm biến</h3>
+        <p>Nhiệt độ: <span id="temp">--</span> °C</p>
+        <p>Độ ẩm: <span id="humi">--</span> %</p>
+        <p>Ánh sáng: <span id="light">--</span></p>
+      </div>
+
+      <div class="charts">
+        <canvas id="tempChart"></canvas>
+        <canvas id="humiChart"></canvas>
+        <canvas id="lightChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==== MQTT Setup ====
+    const broker = "wss://2f8582b1ea9e4ba7ac6af96398a28585.s1.eu.hivemq.cloud:8884/mqtt";
+    const options = {
+      username: "hoangphung",
+      password: "Hoang05052004",
+      reconnectPeriod: 2000,
+      connectTimeout: 4000
+    };
+    const client = mqtt.connect(broker, options);
+    let currentMode = 1;
+
+    // ==== Charts ====
+    const labels = [], tempData = [], humiData = [], lightData = [];
+    const tempChart = new Chart(document.getElementById("tempChart"), {
+      type:"line", data:{labels, datasets:[{label:"Nhiệt độ (°C)", data:tempData, borderColor:"red", fill:false}]}
+    });
+    const humiChart = new Chart(document.getElementById("humiChart"), {
+      type:"line", data:{labels, datasets:[{label:"Độ ẩm (%)", data:humiData, borderColor:"blue", fill:false}]}
+    });
+    const lightChart = new Chart(document.getElementById("lightChart"), {
+      type:"line", data:{labels, datasets:[{label:"Ánh sáng", data:lightData, borderColor:"orange", fill:false}]}
+    });
+
+    // ==== MQTT Events ====
+    client.on("connect", ()=>{
+      console.log("✅ MQTT connected");
+      client.subscribe("ptit/home/status");
+      client.publish("ptit/home/control", "REQ_STATUS");
+    });
+
+    client.on("message", (topic, message)=>{
+      if(topic==="ptit/home/status"){
+        const data = JSON.parse(message.toString());
+        updateUI(data);
+      }
+    });
+
+    function send(cmd){
+      client.publish("ptit/home/control", cmd);
+      console.log("📤 Sent:", cmd);
+    }
+
+    // ==== UI Update ====
+    function updateUI(data){
+      document.getElementById("temp").innerText = data.temp.toFixed(1);
+      document.getElementById("humi").innerText = data.humi.toFixed(1);
+      document.getElementById("light").innerText = data.light ? "Sáng" : "Tối";
+
+      document.getElementById("lampText").innerText = data.lamp ? "Đang bật" : "Đang tắt";
+      document.getElementById("mistText").innerText = data.mist ? "Đang bật" : "Đang tắt";
+      document.getElementById("fanText").innerText  = data.fan ? "Đang bật" : "Đang tắt";
+
+      document.getElementById("lampToggle").checked = data.lamp;
+      document.getElementById("mistToggle").checked = data.mist;
+      document.getElementById("fanToggle").checked  = data.fan;
+
+      currentMode = data.autoMode;
+      document.getElementById("modeText").innerText = currentMode ? "AUTO 🤖" : "MANUAL ✋";
+
+      document.getElementById("lampToggle").disabled = currentMode;
+      document.getElementById("mistToggle").disabled = currentMode;
+      document.getElementById("fanToggle").disabled  = currentMode;
+
+      const now = new Date().toLocaleTimeString();
+      if(labels.length>20){labels.shift();tempData.shift();humiData.shift();lightData.shift();}
+      labels.push(now);
+      tempData.push(data.temp); humiData.push(data.humi); lightData.push(data.light);
+      tempChart.update(); humiChart.update(); lightChart.update();
+    }
+
+    function toggleDevice(dev){
+      if(currentMode) return;
+      const st = document.getElementById(dev+"Toggle").checked;
+      send(dev.toUpperCase() + "_" + (st ? "ON" : "OFF"));
+    }
+    function toggleMode(){ send(currentMode ? "MODE_MANUAL" : "MODE_AUTO"); }
+  </script>
+</body>
+</html>
