@@ -20,11 +20,14 @@
     .right {display:grid; grid-template-rows:auto auto; gap:15px;}
     .charts {display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;}
     canvas {height:120px !important; width:100% !important;}
+    #status {text-align:center; padding:10px; font-weight:bold;}
     @media(max-width:768px){.container{grid-template-columns:1fr;}.charts{grid-template-columns:1fr;}}
   </style>
 </head>
 <body>
   <h1>🏠 Smart Home Dashboard (MQTT Cloud)</h1>
+  <div id="status">🔄 Đang kết nối MQTT...</div>
+  
   <div class="container">
     <div class="card">
       <h3>Điều khiển thiết bị</h3>
@@ -79,7 +82,7 @@
       connectTimeout: 4000
     };
     const client = mqtt.connect(broker, options);
-    let currentMode = 1;
+    let currentMode = 0;
 
     // ==== Charts ====
     const labels = [], tempData = [], humiData = [], lightData = [];
@@ -96,55 +99,56 @@
     // ==== MQTT Events ====
     client.on("connect", ()=>{
       console.log("✅ MQTT connected");
-      client.subscribe("ptit/home/status");
-      client.publish("ptit/home/control", "REQ_STATUS");
+      document.getElementById("status").innerText = "✅ Đã kết nối HiveMQ Cloud";
+      client.subscribe("esp8266/data");
+    });
+
+    client.on("reconnect", ()=>{
+      document.getElementById("status").innerText = "🔄 Đang thử kết nối lại...";
+    });
+
+    client.on("error", (err)=>{
+      document.getElementById("status").innerText = "❌ Lỗi MQTT: " + err.message;
     });
 
     client.on("message", (topic, message)=>{
-      if(topic==="ptit/home/status"){
-        const data = JSON.parse(message.toString());
-        updateUI(data);
+      if(topic==="esp8266/data"){
+        try {
+          const data = JSON.parse(message.toString());
+          updateUI(data);
+        } catch(e) {
+          console.error("JSON Error:", e);
+        }
       }
     });
 
     function send(cmd){
-      client.publish("ptit/home/control", cmd);
+      client.publish("esp8266/control", cmd);
       console.log("📤 Sent:", cmd);
     }
 
     // ==== UI Update ====
     function updateUI(data){
       document.getElementById("temp").innerText = data.temp.toFixed(1);
-      document.getElementById("humi").innerText = data.humi.toFixed(1);
-      document.getElementById("light").innerText = data.light ? "Sáng" : "Tối";
-
-      document.getElementById("lampText").innerText = data.lamp ? "Đang bật" : "Đang tắt";
-      document.getElementById("mistText").innerText = data.mist ? "Đang bật" : "Đang tắt";
-      document.getElementById("fanText").innerText  = data.fan ? "Đang bật" : "Đang tắt";
-
-      document.getElementById("lampToggle").checked = data.lamp;
-      document.getElementById("mistToggle").checked = data.mist;
-      document.getElementById("fanToggle").checked  = data.fan;
-
-      currentMode = data.autoMode;
-      document.getElementById("modeText").innerText = currentMode ? "AUTO 🤖" : "MANUAL ✋";
-
-      document.getElementById("lampToggle").disabled = currentMode;
-      document.getElementById("mistToggle").disabled = currentMode;
-      document.getElementById("fanToggle").disabled  = currentMode;
+      document.getElementById("humi").innerText = data.hum.toFixed(1);
+      document.getElementById("light").innerText = data.light;
 
       const now = new Date().toLocaleTimeString();
       if(labels.length>20){labels.shift();tempData.shift();humiData.shift();lightData.shift();}
       labels.push(now);
-      tempData.push(data.temp); humiData.push(data.humi); lightData.push(data.light);
+      tempData.push(data.temp);
+      humiData.push(data.hum);
+      lightData.push(data.light);
       tempChart.update(); humiChart.update(); lightChart.update();
     }
 
+    // ==== Điều khiển thiết bị (chế độ thủ công) ====
     function toggleDevice(dev){
       if(currentMode) return;
       const st = document.getElementById(dev+"Toggle").checked;
-      send(dev.toUpperCase() + "_" + (st ? "ON" : "OFF"));
+      send(dev + "_" + (st ? "on" : "off"));
     }
+
     function toggleMode(){ send(currentMode ? "MODE_MANUAL" : "MODE_AUTO"); }
   </script>
 </body>
